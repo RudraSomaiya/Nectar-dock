@@ -1660,13 +1660,15 @@ function App() {
       lastAgentKey.current = key;
       setAgentActivity((prev) => (next && prev?.ask && !next.ask && next.cancelled !== prev.ask.id && (next.state === 'working' || next.state === 'tool') ? prev : next));
       if (next && next.state === "done") clear = setTimeout(() => setAgentActivity(null), 8000);
-      // Without waiting for a hover: a question opens the panel with its buttons; "done" and "needs
-      // you" show as a short notice. (Nectar Voice's own questions are already on screen.)
-      if (next && windowLabelRef.current.startsWith('main') && next.name !== 'Gizmo') {
+      // Without waiting for a hover: a question (Claude's, or Gizmo's own "Send?") opens the panel with
+      // its buttons, replacing whatever voice message is showing; "done" and "needs you" from other
+      // agents show as a short notice. (Gizmo's own results come through the voice view instead.)
+      if (next && windowLabelRef.current.startsWith('main')) {
         if (next.state === 'needs_input' && next.ask) {
+          clearTimeout(voiceClearRef.current);
           setVoice(null);
           setNectarMode('agent');
-        } else if (key !== agentNoticeKey.current && (next.state === 'done' || next.state === 'needs_input' || next.state === 'error')) {
+        } else if (next.name !== 'Gizmo' && key !== agentNoticeKey.current && (next.state === 'done' || next.state === 'needs_input' || next.state === 'error')) {
           const text = next.detail || (next.state === 'done' ? 'Finished.' : next.state === 'error' ? 'Something failed.' : 'Waiting for you.');
           setVoice({ state: next.state === 'error' ? 'error' : 'notice', mode: 'command', text, label: next.name || 'Agent' });
           clearTimeout(voiceClearRef.current);

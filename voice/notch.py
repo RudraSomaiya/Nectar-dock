@@ -112,7 +112,7 @@ def ask(question, detail="", choices=None, timeout=120):
     base, headers = _cfg()
     if not base:
         return None
-    state("thinking", "command", f"{question} Hover the notch to answer.", label="Needs your OK")
+    # No voice message here: the question opens the notch by itself, with Allow / Deny (or the choices).
     body = {"name": NAME, "tool": question[:60], "detail": detail[:600]}
     if choices:
         body["questions"] = [{"question": question, "options": choices[:4]}]
