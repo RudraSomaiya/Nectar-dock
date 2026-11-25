@@ -4,7 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Effect, EffectState } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Settings, Palette, PanelTop, Monitor, Layers, Info, Bug } from "lucide-react";
+import { Settings, Palette, PanelTop, Monitor, Layers, Info, Bug, Mic } from "lucide-react";
 import { WindowControls } from "./components/WindowControls";
 import {
   useSettings,
@@ -22,6 +22,7 @@ import { initTheme } from "./theme";
 import { useT } from "./i18n";
 import { SettingsSearchBox, SearchResults, useSearchHits } from "./settings/SettingsSearch";
 import type { SearchEntry } from "./settings/searchIndex";
+import { VoiceTab } from "./settings/VoiceTab";
 import "./Settings.css";
 
 const appWindow = getCurrentWebviewWindow();
@@ -30,6 +31,7 @@ const TABS: { id: SettingsTab; labelKey: string; icon: typeof Settings }[] = [
   { id: "general", labelKey: "tabs.general", icon: Settings },
   { id: "appearance", labelKey: "tabs.appearance", icon: Palette },
   { id: "notch", labelKey: "tabs.notch", icon: PanelTop },
+  { id: "voice", labelKey: "Voice", icon: Mic },
   { id: "dock", labelKey: "tabs.dock", icon: Monitor },
   { id: "overlays", labelKey: "tabs.overlays", icon: Layers },
   { id: "about", labelKey: "tabs.about", icon: Info },
@@ -274,6 +276,7 @@ function SettingsApp() {
               hasBattery={settings.hasBattery}
             />
           )}
+          {!query.trim() && activeTab === "voice" && <VoiceTab />}
           {!query.trim() && activeTab === "dock" && (
             <DockTab
               dockEnabled={settings.dockEnabled}

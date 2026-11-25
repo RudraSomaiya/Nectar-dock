@@ -2976,3 +2976,5 @@ img {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+.voice-badge.notice { background: #5ac8fa; font-size: 12px; }

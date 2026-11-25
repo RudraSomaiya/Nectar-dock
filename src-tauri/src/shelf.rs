@@ -235,6 +235,7 @@ impl IDropTarget_Impl for ShelfDropTarget_Impl {
                 .and_then(|data| unsafe { ShelfDropTarget::extract(data) });
             match payload {
                 Some(DragPayload::Files(paths, hdrop)) => {
+                    remember_drop(&paths);
                     let _ = self
                         .app
                         .emit("shelf-drag-drop", serde_json::json!({ "label": self.label, "paths": paths }));
@@ -299,4 +300,15 @@ unsafe fn inject(hwnd: HWND, app: &AppHandle, label: &str, dock: bool, out: &mut
     if unsafe { RegisterDragDrop(hwnd, &target) }.is_ok() {
         out.push(target);
     }
+}
+
+/// Nectar Voice reads this to answer "summarize the file I dropped" (voice/files.py).
+fn remember_drop(paths: &[String]) {
+    let Some(appdata) = std::env::var_os("APPDATA") else { return };
+    let path = std::path::PathBuf::from(appdata).join("com.kua8.nectar").join("last_drop.json");
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = std::fs::write(path, serde_json::json!({ "paths": paths, "time": secs }).to_string());
 }

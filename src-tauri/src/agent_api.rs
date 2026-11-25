@@ -359,9 +359,20 @@ fn sync_claude_hooks(enable: bool) {
     }
 }
 
+/// `nectar-agent-hooks-dev` = "true" lets a build-folder Nectar (how Nectar Voice runs it) install the
+/// Claude Code hooks too. Off by default, so ordinary dev builds still never touch ~/.claude.
+fn dev_hooks_allowed() -> bool {
+    let Some(appdata) = std::env::var_os("APPDATA") else { return false };
+    let path = PathBuf::from(appdata).join("com.kua8.nectar").join("settings.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .is_some_and(|v| v["nectar-agent-hooks-dev"].as_str() == Some("true") || v["nectar-agent-hooks-dev"].as_bool() == Some(true))
+}
+
 pub fn set_hooks(enable: bool) {
     let is_build_output = std::env::current_exe().is_ok_and(|p| p.components().any(|c| c.as_os_str() == "target"));
-    if cfg!(debug_assertions) || is_build_output {
+    if (cfg!(debug_assertions) || is_build_output) && !dev_hooks_allowed() {
         return;
     }
     if enable && !std::env::var_os("USERPROFILE").is_some_and(|d| PathBuf::from(d).join(".claude").is_dir()) {

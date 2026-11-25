@@ -143,7 +143,11 @@ def idle_watch():
     while True:
         time.sleep(5)
         idle = time.time() - state["last_use"]
-        limit = S["stt_idle_exit_s"]
+        from settings import nectar_setting
+        try:  # Settings > Voice > Unload when idle (0 = never)
+            limit = int(nectar_setting("nectar-voice-idle", S["stt_idle_exit_s"]))
+        except (TypeError, ValueError):
+            limit = S["stt_idle_exit_s"]
         if limit > 0 and state["ready"] and idle > limit:
             log(f"idle {int(idle)} s, exiting to free memory")
             os._exit(0)

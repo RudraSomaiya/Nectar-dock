@@ -391,6 +391,12 @@ def write(instruction, destination="auto"):
     out = llm.text(WRITE_SYSTEM, instruction, temperature=0.6, max_tokens=1500)
     if not out:
         return "(the writing model returned nothing)"
+    return _place(out, destination)
+
+
+def _place(out, destination="auto"):
+    """Put text in the box with the cursor, or on the clipboard (asked for, or no box focused)."""
+    import screen
     preview = out if len(out) <= 400 else out[:400] + "…"
     where = None
     if destination != "clipboard" and CTX.get("target"):
@@ -424,6 +430,30 @@ def rewrite_selection(instruction, selected):
         time.sleep(0.08)
     inject.paste_text(out)
     return "Rewritten."
+
+
+# ---- files --------------------------------------------------------------------------------
+@tool("file_ask", "files", "Answer a question about a file the user shared: dropped on the notch, copied with "
+      "Ctrl+C, or selected in File Explorer (PDF, Word, PowerPoint, Excel, text/code, images). Summaries, "
+      "questions, pulling out parts ('the deadline', 'all the email addresses'). destination: notch (show the "
+      "answer, default), type (into the box with the cursor) or clipboard.",
+      {"question": S_("The request, in the user's words"),
+       "destination": S_("notch, type or clipboard", enum=["notch", "type", "clipboard"])}, ["question"])
+def file_ask(question, destination="notch"):
+    import files
+    import notch
+    paths, source = files.find_files(CTX.get("target"))
+    if not paths:
+        return ("I don't see a file. Drop it on the notch, select it in File Explorer, or copy it (Ctrl+C), "
+                "then ask again.")
+    path = paths[0]
+    notch.thinking(f"Reading {os.path.basename(path)}…")
+    log(f"file_ask on {path} ({source})")
+    out = files.answer(question, path)
+    extra = f" (+{len(paths) - 1} more file{'s' if len(paths) > 2 else ''} ignored)" if len(paths) > 1 else ""
+    if destination in ("type", "clipboard"):
+        return _place(out, "clipboard" if destination == "clipboard" else "auto") + extra
+    return f"{os.path.basename(path)}: {out}{extra}"
 
 
 # ---- screen (phase 2) ---------------------------------------------------------------------
@@ -498,10 +528,14 @@ def screen_fill(field, text=""):
         el = screen.find(field, screen.elements(hwnd), "field", goal=f"the {field} text box")
         if not el:
             return None
+        import cursor
+        r = el["rect"]
+        cursor.glide_to((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+        cursor.click()
         try:
             el["ctrl"].SetFocus()
         except Exception:
-            screen.press(el)
+            screen.press(el, show=False)
         return el
 
     el = screen.with_uia(run)

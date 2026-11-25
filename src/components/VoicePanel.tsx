@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 
-export type VoicePhase = "listening" | "transcribing" | "thinking" | "result" | "error";
+export type VoicePhase = "listening" | "transcribing" | "thinking" | "result" | "error" | "notice";
 
 export interface VoiceState {
   state: VoicePhase;
@@ -21,6 +21,7 @@ const LABELS: Record<VoicePhase, string> = {
   thinking: "Working on it",
   result: "Done",
   error: "Couldn't do that",
+  notice: "Notification",
 };
 
 const LIVE_WIDTH = 440;
@@ -65,11 +66,11 @@ function Indicator({ phase, levels }: { phase: VoicePhase; levels: number[] }) {
   if (phase === "transcribing" || phase === "thinking") {
     return <div className="voice-spinner" aria-hidden />;
   }
-  return <div className={`voice-badge ${phase}`} aria-hidden>{phase === "result" ? "✓" : "!"}</div>;
+  return <div className={`voice-badge ${phase}`} aria-hidden>{phase === "result" ? "✓" : phase === "notice" ? "🔔" : "!"}</div>;
 }
 
 export function VoicePanel({ voice, levels = [] }: { voice: VoiceState; levels?: number[] }) {
-  const mode = voice.mode === "dictate" ? "Dictate" : "Command";
+  const mode = voice.state === "notice" ? "" : voice.mode === "dictate" ? "Dictate" : "Command";
   const label = voice.label || LABELS[voice.state];
   const placeholder = voice.state === "listening" ? "Speak now…" : "";
   const text = isLive(voice) ? liveTail(voice.text) : voice.text;
@@ -84,7 +85,7 @@ export function VoicePanel({ voice, levels = [] }: { voice: VoiceState; levels?:
     >
       <Indicator phase={voice.state} levels={levels} />
       <div className="voice-body">
-        <div className="voice-label">{label} · {mode}</div>
+        <div className="voice-label">{mode ? `${label} · ${mode}` : label}</div>
         <div className={`voice-text ${text ? "" : "placeholder"} ${isLive(voice) ? "live" : ""}`}>{text || placeholder}</div>
       </div>
     </motion.div>

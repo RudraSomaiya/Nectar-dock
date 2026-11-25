@@ -30,6 +30,8 @@ CATEGORY_WORDS = {
     "web": r"\b(search|google|youtube|video|website|site|url|browser|brave|chrome|look up|wikipedia|amazon|"
            r"github|maps|reddit|tab)",
     "writing": r"\b(write|draft|compose|email|mail|message|reply|letter|essay|paragraph|note|caption|tweet|post)",
+    "files": r"\b(file|pdf|doc|document|docx|ppt|slides?|presentation|excel|sheet|spreadsheet|dropped|attached|"
+             r"this (one|report|paper|notes?|assignment)|summar|it say)",
     "screen": r"\b(screen|click|tick|untick|check ?box|select|choose|fill|field|box|button|link|copy|error|"
               r"what('?s| is) (this|that)|camera|photo|selfie|picture|screenshot|snip|page|image|read|"
               r"cursor|type in|enter my|first|second|third|video)",
@@ -137,7 +139,10 @@ def handle_command(text, window):
 
     # 1. "make this longer" with text selected: rewrite the selection, any wording.
     norm = rules.normalize(text)
-    if EDIT_RE.search(norm):
+    about_file = re.search(CATEGORY_WORDS["files"], norm) and not re.search(r"\b(text|selected|selection|this "
+                                                                             r"(paragraph|sentence|line))\b", norm)
+    in_explorer = (window.get("exe") or "").lower() == "explorer.exe"
+    if EDIT_RE.search(norm) and not about_file and not in_explorer:
         selected = inject.get_selection(window.get("hwnd"))
         log(f"edit request, selection {len(selected)} chars")
         if selected.strip():
@@ -177,11 +182,19 @@ def handle_command(text, window):
 
 
 def handle_dictation(text, window):
-    text = textops.apply_aliases(text)
-    out = textops.clean(text)
-    if S["dictation_mode"] == "polished" and out:
-        notch.thinking(out, "dictate")
-        out = textops.polish(out, window.get("exe", ""))
+    from settings import nectar_setting
+    mode = nectar_setting("nectar-voice-dictation", S["dictation_mode"])
+    label = "Typed"
+    if mode == "polished" and not llm.online():
+        mode, label = "raw", "Typed · offline, raw text"
+    if mode == "raw":
+        out = text.strip()  # exactly what Whisper heard
+    else:
+        out = textops.clean(textops.apply_aliases(text))
+        if mode == "polished" and out:
+            notch.thinking(out, "dictate")
+            out = textops.polish(out, window.get("exe", ""))
+    log(f"dictation mode {mode}")
     if not out:
         notch.clear()
         return ""
@@ -190,5 +203,5 @@ def handle_dictation(text, window):
         time.sleep(0.08)
     # Add a space when continuing after earlier text on the same line.
     inject.paste_text(out + " ")
-    notch.state("result", "dictate", out, label="Typed", hold_ms=2500)
+    notch.state("result", "dictate", out, label=label, hold_ms=2500)
     return out

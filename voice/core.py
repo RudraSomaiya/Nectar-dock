@@ -200,6 +200,11 @@ def _read_wav(path):
 
 
 def main():
+    try:  # real pixels everywhere, so UI Automation positions and the AI cursor line up on scaled displays
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--say")
     ap.add_argument("--dictate")
@@ -232,6 +237,8 @@ def main():
     timers.load_saved()
     threading.Thread(target=_nectar_watch, daemon=True).start()
     v = Voice()
+    import notifications
+    notifications.start(lambda: v.mode is not None or v.busy.locked())
     keyboard.hook(v.on_key)
     log(f"Nectar Voice running: hold {S['command_key']} for commands, {S['dictate_key']} to dictate")
     try:

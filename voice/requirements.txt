@@ -2,7 +2,11 @@ faster-whisper>=1.2
 httpx
 keyboard
 numpy
+openpyxl
 pillow
+pymupdf
+python-docx
+python-pptx
 psutil
 pycaw
 comtypes

@@ -552,6 +552,8 @@ function App() {
   const [isNotchHovered, setIsNotchHovered] = useState(false);
   const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
   const [voice, setVoice] = useState<VoiceState | null>(null);
+  const agentNoticeKey = useRef('');
+  const voiceClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [voiceLevels, setVoiceLevels] = useState<number[]>([]);
   const [agentPicks, setAgentPicks] = useState<{ id: number; choices: number[] }>({ id: 0, choices: [] });
   const lastAgentKey = useRef("");
@@ -1292,7 +1294,6 @@ function App() {
   const stopwatch = useStopwatch();
 
   // Nectar Voice (voice/core.py posts to the agent API's /voice route).
-  const voiceClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const voiceActionsRef = useRef({ startTimerSeconds, resetTimer, toggleTimer, isTimerRunning, stopwatch });
   voiceActionsRef.current = { startTimerSeconds, resetTimer, toggleTimer, isTimerRunning, stopwatch };
   useEffect(() => {
@@ -1320,7 +1321,7 @@ function App() {
       if (!p.state || p.state === "idle") { setVoice(null); setVoiceLevels([]); return; }
       if (p.state !== "listening") setVoiceLevels([]);
       setVoice({ state: p.state, mode: p.mode ?? "command", text: p.text ?? "", label: p.label });
-      if (p.state === "result" || p.state === "error") {
+      if (p.state === "result" || p.state === "error" || p.state === "notice") {
         voiceClearRef.current = setTimeout(() => setVoice(null), Math.max(1500, Math.min(20000, p.hold_ms ?? 5000)));
       } else {
         // Safety net: never leave the notch stuck open if voice/core.py dies mid-way.
@@ -1652,6 +1653,20 @@ function App() {
       lastAgentKey.current = key;
       setAgentActivity((prev) => (next && prev?.ask && !next.ask && next.cancelled !== prev.ask.id && (next.state === 'working' || next.state === 'tool') ? prev : next));
       if (next && next.state === "done") clear = setTimeout(() => setAgentActivity(null), 8000);
+      // Without waiting for a hover: a question opens the panel with its buttons; "done" and "needs
+      // you" show as a short notice. (Nectar Voice's own questions are already on screen.)
+      if (next && windowLabelRef.current.startsWith('main') && next.name !== 'Voice') {
+        if (next.state === 'needs_input' && next.ask) {
+          setVoice(null);
+          setNectarMode('agent');
+        } else if (key !== agentNoticeKey.current && (next.state === 'done' || next.state === 'needs_input' || next.state === 'error')) {
+          const text = next.detail || (next.state === 'done' ? 'Finished.' : next.state === 'error' ? 'Something failed.' : 'Waiting for you.');
+          setVoice({ state: next.state === 'error' ? 'error' : 'notice', mode: 'command', text, label: next.name || 'Agent' });
+          clearTimeout(voiceClearRef.current);
+          voiceClearRef.current = setTimeout(() => setVoice(null), 6000);
+        }
+      }
+      agentNoticeKey.current = key;  // "clear" and new work reset it, so the next "done" shows again
     });
     return () => {
       clearTimeout(clear);

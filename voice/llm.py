@@ -62,6 +62,23 @@ def chat(messages, tools=None, temperature=0.3, max_tokens=1024, models=None, js
     raise RuntimeError(f"Groq unavailable ({last_err})")
 
 
+_online = {"at": 0.0, "ok": True}
+
+
+def online():
+    """Can we reach Groq? (Quick TCP check, remembered for 15 s.)"""
+    import socket
+    if time.time() - _online["at"] < 15:
+        return _online["ok"]
+    try:
+        socket.create_connection(("api.groq.com", 443), timeout=0.8).close()
+        ok = True
+    except OSError:
+        ok = False
+    _online.update(at=time.time(), ok=ok)
+    return ok
+
+
 def text(system, user, **kw):
     msg = chat([{"role": "system", "content": system}, {"role": "user", "content": user}], **kw)
     return (msg.get("content") or "").strip()

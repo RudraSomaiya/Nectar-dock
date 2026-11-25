@@ -57,6 +57,24 @@ def load_settings():
     return s
 
 
+NECTAR_SETTINGS = os.path.join(os.environ.get("APPDATA", ""), "com.kua8.nectar", "settings.json")
+_nectar_cache = {"mtime": None, "data": {}}
+
+
+def nectar_setting(key, default=None):
+    """A value from Nectar's settings.json (its Settings > Voice tab writes these). Re-read when it changes."""
+    try:
+        m = os.path.getmtime(NECTAR_SETTINGS)
+        if m != _nectar_cache["mtime"]:
+            with open(NECTAR_SETTINGS, encoding="utf-8") as f:
+                _nectar_cache["data"] = json.load(f)
+            _nectar_cache["mtime"] = m
+    except (OSError, ValueError):
+        return default
+    v = _nectar_cache["data"].get(key)
+    return default if v is None else v
+
+
 def save_setting(key, value):
     """Change one setting in config/voice.json and in the running settings."""
     try:

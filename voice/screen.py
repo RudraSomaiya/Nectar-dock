@@ -164,9 +164,15 @@ def find(target, els, kind=None, goal=""):
         return cands[best[1]] if best[0] >= 75 else None
 
 
-def press(el):
-    """Use the control's own action (no mouse) when it has one; otherwise click its middle."""
+def press(el, show=True):
+    """Use the control's own action (no mouse) when it has one; otherwise click its middle.
+    The AI cursor glides there first so you can see what's being clicked."""
     c = el["ctrl"]
+    r = el["rect"]
+    if show:
+        import cursor
+        cursor.glide_to((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+        cursor.click()
     for getter, action in (("GetInvokePattern", "Invoke"), ("GetTogglePattern", "Toggle"),
                            ("GetSelectionItemPattern", "Select"), ("GetExpandCollapsePattern", "Expand")):
         try:
