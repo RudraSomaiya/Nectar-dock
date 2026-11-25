@@ -163,7 +163,10 @@ fn handle(mut stream: TcpStream, app: &AppHandle, token: &str) {
     let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
     let mut lines = head.split("\r\n");
     let request = lines.next().unwrap_or("");
+    // Nectar Voice: listening / live transcript / result, plus timer and stopwatch control.
+    let voice = matches!(request, "POST /voice HTTP/1.1" | "POST /voice HTTP/1.0");
     let ask = match request {
+        _ if voice => false,
         "POST /activity HTTP/1.1" | "POST /activity HTTP/1.0" => false,
         "POST /ask HTTP/1.1" | "POST /ask HTTP/1.0" => true,
         _ => return reply(&mut stream, "404 Not Found"),
@@ -192,6 +195,17 @@ fn handle(mut stream: TcpStream, app: &AppHandle, token: &str) {
         }
     }
     body.truncate(length);
+
+    if voice {
+        let Ok(event) = serde_json::from_slice::<serde_json::Value>(&body) else {
+            return reply(&mut stream, "400 Bad Request");
+        };
+        if !event.is_object() {
+            return reply(&mut stream, "400 Bad Request");
+        }
+        let _ = app.emit("voice-event", event);
+        return reply(&mut stream, "204 No Content");
+    }
 
     if ask {
         let Ok(incoming) = serde_json::from_slice::<IncomingAsk>(&body) else {

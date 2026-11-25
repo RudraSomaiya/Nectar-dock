@@ -27,6 +27,7 @@ import { NotchProgressBorder } from "./components/NotchProgressBorder";
 import { SurfaceShape } from "./components/SurfaceShape";
 import { playAgentSound } from "./agentSounds";
 import { AgentLeft, AgentDot, AgentPanel, type AgentActivity } from "./components/AgentStatus";
+import { VoicePanel, voiceSize, type VoiceEvent, type VoiceState } from "./components/VoicePanel";
 import type { WidgetConfig } from "./components/StatusWidgetConfig";
 import {
   DEFAULT_DUAL_CLOCK_ZONE,
@@ -550,6 +551,8 @@ function App() {
   const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("nectar-dock-enabled") !== "false");
   const [isNotchHovered, setIsNotchHovered] = useState(false);
   const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
+  const [voice, setVoice] = useState<VoiceState | null>(null);
+  const [voiceLevels, setVoiceLevels] = useState<number[]>([]);
   const [agentPicks, setAgentPicks] = useState<{ id: number; choices: number[] }>({ id: 0, choices: [] });
   const lastAgentKey = useRef("");
   const windowLabelRef = useRef("");
@@ -570,7 +573,7 @@ function App() {
 
   const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
   const isHidden = hotkeyHidden || ((notchMode === 'smart' || notchMode === 'peek') && isFullscreen) ||
-    (!startupAnimating && !tourActive && !(agentActivity && isNotchWindow) && (
+    (!startupAnimating && !tourActive && !(agentActivity && isNotchWindow) && !(voice && isNotchWindow) && (
       (notchMode === 'smart' && isOverlapped && interactionState === 'none') ||
       (notchMode === 'peek' && interactionState === 'none' && !eventPeek)
     ));
@@ -1288,6 +1291,45 @@ function App() {
 
   const stopwatch = useStopwatch();
 
+  // Nectar Voice (voice/core.py posts to the agent API's /voice route).
+  const voiceClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const voiceActionsRef = useRef({ startTimerSeconds, resetTimer, toggleTimer, isTimerRunning, stopwatch });
+  voiceActionsRef.current = { startTimerSeconds, resetTimer, toggleTimer, isTimerRunning, stopwatch };
+  useEffect(() => {
+    const unlisten = listen<VoiceEvent>("voice-event", (event) => {
+      const p = event.payload;
+      const a = voiceActionsRef.current;
+      if (p.kind === "level") {
+        setVoiceLevels(p.values ?? []);
+        return;
+      }
+      if (p.kind === "timer") {
+        if (p.action === "start" && p.seconds) a.startTimerSeconds(Math.round(p.seconds));
+        else if (p.action === "reset") a.resetTimer();
+        else if (p.action === "pause" && a.isTimerRunning) a.toggleTimer();
+        else if (p.action === "resume" && !a.isTimerRunning) a.toggleTimer();
+        return;
+      }
+      if (p.kind === "stopwatch") {
+        if (p.action === "start" && !a.stopwatch.running) { a.stopwatch.reset(); a.stopwatch.toggle(); }
+        else if (p.action === "stop" && a.stopwatch.running) a.stopwatch.toggle();
+        else if (p.action === "reset") a.stopwatch.reset();
+        return;
+      }
+      clearTimeout(voiceClearRef.current);
+      if (!p.state || p.state === "idle") { setVoice(null); setVoiceLevels([]); return; }
+      if (p.state !== "listening") setVoiceLevels([]);
+      setVoice({ state: p.state, mode: p.mode ?? "command", text: p.text ?? "", label: p.label });
+      if (p.state === "result" || p.state === "error") {
+        voiceClearRef.current = setTimeout(() => setVoice(null), Math.max(1500, Math.min(20000, p.hold_ms ?? 5000)));
+      } else {
+        // Safety net: never leave the notch stuck open if voice/core.py dies mid-way.
+        voiceClearRef.current = setTimeout(() => setVoice(null), 90000);
+      }
+    });
+    return () => { clearTimeout(voiceClearRef.current); unlisten.then((fn) => fn()); };
+  }, []);
+
   useEffect(() => {
     if (!settingsTimerEnabled) resetTimer();
   }, [settingsTimerEnabled]);
@@ -1416,12 +1458,17 @@ function App() {
     updateTime();
     const interval = setVisibleInterval(updateTime, 1000);
 
-    // Toggle compact timer view every 5 seconds if running
+    // While a timer or stopwatch runs, keep it on screen; the clock comes back for a moment
+    // every 12 seconds (a plain 5 s flip made a running timer easy to miss).
     let timerToggleInterval: any;
+    let clockPeek: any;
     if ((isTimerRunning || stopwatch.running) && nectarMode !== 'calendar') {
+      setIsCompactTimerVisible(true);
       timerToggleInterval = setVisibleInterval(() => {
-        setIsCompactTimerVisible(prev => !prev);
-      }, 5000);
+        setIsCompactTimerVisible(false);
+        clearTimeout(clockPeek);
+        clockPeek = setTimeout(() => setIsCompactTimerVisible(true), 2500);
+      }, 12000);
     } else {
       setIsCompactTimerVisible(false);
     }
@@ -1429,6 +1476,7 @@ function App() {
     return () => {
       clearInterval(interval);
       if (timerToggleInterval) clearInterval(timerToggleInterval);
+      clearTimeout(clockPeek);
     };
   }, [isTimerRunning, stopwatch.running, nectarMode, timeFormat24h, settingsDualClockEnabled, dualClockZone]);
 
@@ -2009,7 +2057,28 @@ function App() {
     [showDualClock, time, dualClockLabel, dualTime, dualDayShift]
   );
   const showDate = settingsDateEnabled && !settingsLegacyMode && dateText !== "";
-  const dateExtra = useMemo(() => (showDate ? measureNotchDate(dateText) : 0), [showDate, dateText]);
+  // A running timer/stopwatch shows as a green chip beside the clock: next to the date when the notch
+  // is open, taking turns with the date when it's closed (the clock itself always stays).
+  const timerActive = isTimerRunning || isTimerFinished || stopwatch.running;
+  const timerChipWidth = useMemo(() => measureNotchDate("⏱ 88:88"), []);
+  const showTimerChip = timerActive && (isHovered || isCompactTimerVisible || isTimerFinished || !showDate);
+  const showDateNow = showDate && (!timerActive || isHovered || !showTimerChip);
+  const renderTimerChip = (side: "left" | "right") => (
+    <span
+      key="timer-chip"
+      className={`time-date ${side} timer-chip${isTimerFinished ? " timer-finished" : ""}`}
+      onClick={toggleCalendarMode}
+    >
+      ⏱ {isTimerRunning || isTimerFinished
+        ? formatTimerTime(timerSeconds)
+        : <StopwatchReadout base={stopwatch.base} startedAt={stopwatch.startedAt} precise={false} />}
+    </span>
+  );
+  const dateExtra = useMemo(() => {
+    const date = showDate ? measureNotchDate(dateText) : 0;
+    if (!timerActive) return date;
+    return isHovered ? date + timerChipWidth : Math.max(date, timerChipWidth);
+  }, [showDate, dateText, timerActive, isHovered, timerChipWidth]);
   // Room the dual clock and the date take beside the time.
   const dualClockExtra = (dualClockSize?.extra ?? 0) + dateExtra;
   const dualClockTooltip = useMemo(
@@ -2022,7 +2091,10 @@ function App() {
   const agentNeedsYou = !!agentActivity && isNotchWindow && (agentActivity.state === 'needs_input' || agentActivity.state === 'error');
   const agentWings = !!agentActivity && isNotchWindow && !isHovered && (nectarMode === 'status' || isMusicMode);
 
+  const voiceActive = !!voice && isNotchWindow;
+
   const getDynamicWidth = () => {
+    if (voiceActive && voice) return voiceSize(voice).width;
     const widgetsRowWidth = isHovered && statusWidgets.left.length + statusWidgets.right.length > 0
       ? Math.min(200 + Math.max(statusWidgets.left.length, statusWidgets.right.length) * 2 * 65, 530) + dualClockExtra
       : 0;
@@ -2057,6 +2129,7 @@ function App() {
     if (!isExpanded || isHidden) {
       return isImpacted ? 28.9 : 44.2;
     }
+    if (voiceActive && voice) return voiceSize(voice).height;
     if (nectarMode === 'agent') {
       const ask = agentActivity?.ask;
       const qs = ask?.questions;
@@ -2208,7 +2281,8 @@ function App() {
         {widgetTip && isHovered && <div className="widget-tip">{widgetTip}</div>}
 
         <AnimatePresence mode="wait">
-          {isExpanded && (
+          {isExpanded && voiceActive && voice && <VoicePanel voice={voice} levels={voiceLevels} />}
+          {isExpanded && !voiceActive && (
             <motion.div
               key="nectar-content"
               initial={{ opacity: 0 }}
@@ -2489,7 +2563,8 @@ function App() {
 
                             {/* Center - Time (always visible) */}
                             <div className="time-center">
-                              {showDate && datePosition === "left" && (
+                              {showTimerChip && datePosition === "left" && !showDateNow && renderTimerChip("left")}
+                              {showDateNow && datePosition === "left" && (
                                 <span className="time-date left" onClick={toggleCalendarMode}>{dateText}</span>
                               )}
                               <div
@@ -2498,20 +2573,7 @@ function App() {
                                 style={batteryLow ? { minWidth: Math.max(96, Math.ceil(t("battery.low").length * 10), dualClockSize?.main ?? 0) } : dualClockSize ? { minWidth: dualClockSize.main } : undefined}
                               >
                                 <AnimatePresence initial={false}>
-                                  {isCompactTimerVisible || isTimerFinished ? (
-                                    <motion.span
-                                      key="timer"
-                                      className={`time compact-timer ${isTimerFinished ? 'timer-finished' : ''}`}
-                                      initial={{ rotateX: -90, opacity: 0 }}
-                                      animate={{ rotateX: 0, opacity: 1 }}
-                                      exit={{ rotateX: 90, opacity: 0 }}
-                                      transition={{ type: "spring", stiffness: 600, damping: 30 }}
-                                    >
-                                      {isTimerRunning || isTimerFinished
-                                        ? formatTimerTime(timerSeconds)
-                                        : <StopwatchReadout base={stopwatch.base} startedAt={stopwatch.startedAt} precise={false} />}
-                                    </motion.span>
-                                  ) : batteryLow ? (
+                                  {batteryLow ? (
                                     <motion.span
                                       key="low-battery"
                                       className="time low-battery-text"
@@ -2543,7 +2605,9 @@ function App() {
                                   {dualDayShift !== 0 && <span className="time-secondary-shift">{dayShiftLabel(dualDayShift)}</span>}
                                 </div>
                               )}
-                              {showDate && datePosition === "right" && (
+                              {/* Open notch: date and timer together. Date on the left: the timer sits right of the clock. */}
+                              {showTimerChip && (datePosition !== "left" || showDateNow) && renderTimerChip("right")}
+                              {showDateNow && datePosition === "right" && (
                                 <span className="time-date right" onClick={toggleCalendarMode}>{dateText}</span>
                               )}
                             </div>

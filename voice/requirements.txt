@@ -1,0 +1,11 @@
+faster-whisper>=1.2
+httpx
+keyboard
+numpy
+psutil
+pycaw
+comtypes
+pywin32
+rapidfuzz
+screen-brightness-control
+sounddevice

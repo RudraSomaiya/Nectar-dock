@@ -2416,8 +2416,8 @@ img {
 }
 
 .notch-progress-fill {
-    stroke: var(--nectar-text, white);
-    opacity: 0.7;
+    stroke: var(--nectar-timer-color, #32d74b);
+    opacity: 0.85;
     transition: stroke-dasharray 1s linear, opacity 0.3s ease;
 }
 
@@ -2847,4 +2847,132 @@ img {
     font-weight: 600;
     margin-right: 6px;
     color: var(--nectar-text-muted, rgba(255, 255, 255, 0.6));
+}
+
+/* ---- Nectar Voice ------------------------------------------------------------------ */
+.voice-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    box-sizing: border-box;
+    padding: 12px 18px 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--nectar-text, #fff);
+    pointer-events: none;
+}
+
+.voice-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    gap: 2px;
+}
+
+.voice-label {
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--nectar-text-muted, rgba(255, 255, 255, 0.55));
+    white-space: nowrap;
+}
+
+.voice-text {
+    font-size: 13px;
+    line-height: 18px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
+.voice-text.placeholder {
+    color: var(--nectar-text-muted, rgba(255, 255, 255, 0.5));
+}
+
+.voice-bars {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 22px;
+    width: 26px;
+    flex: none;
+}
+
+.voice-bars span {
+    width: 3px;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--nectar-accent, #5ac8fa);
+    animation: voice-bar 0.9s ease-in-out infinite;
+    transform-origin: center;
+}
+
+@keyframes voice-bar {
+    0%, 100% { transform: scaleY(0.25); }
+    50% { transform: scaleY(1); }
+}
+
+.voice-spinner {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    margin: 0 3px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255, 255, 255, 0.18);
+    border-top-color: var(--nectar-accent, #5ac8fa);
+    animation: voice-spin 0.8s linear infinite;
+}
+
+@keyframes voice-spin {
+    to { transform: rotate(360deg); }
+}
+
+.voice-badge {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    margin: 0 2px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
+
+.voice-badge.result { background: #30d158; }
+.voice-badge.error { background: #ff9f0a; }
+
+.voice-text.live {
+    -webkit-line-clamp: 2;
+    transition: opacity 0.12s;
+}
+
+/* Running timer beside the clock (green, like the progress ring). */
+.time-date.timer-chip {
+    color: var(--nectar-timer-color, #32d74b);
+    font-variant-numeric: tabular-nums;
+}
+
+.time-date.timer-chip.timer-finished {
+    animation: timer-chip-done 1s ease-in-out infinite;
+}
+
+@keyframes timer-chip-done {
+    50% { opacity: 0.35; }
+}
+
+/* Real mic level: no canned animation, just a quick ease between readings. */
+.voice-bars.live span {
+    animation: none;
+    transition: transform 0.07s linear;
+}
+
+.voice-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
