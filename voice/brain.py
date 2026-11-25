@@ -44,7 +44,13 @@ ROUTER_SYSTEM = """You are Nectar Voice, a voice assistant on the user's Windows
 speech recognition may have small mistakes (e.g. "brief" = Brave, "cloud" = Claude), so read for intent.
 Use the tools to act. For several steps, call the tools in order (you may call more than one, or call again
 after seeing results). If the user only asks a question, answer it directly in one or two short sentences
-(it shows in a small notch). Never claim you did something a tool didn't do. If a request is unclear or
+(it shows in a small notch).
+Whenever the user wants text created (a prompt, email, message, letter, caption, list, code, anything to use
+or paste), call `write`: never put the created text in your reply. It types into the box with the cursor, or
+the clipboard if they asked for that. To put text somewhere after other steps (e.g. into a compose box you
+just opened), use the text from the write result with type_text once the cursor is there.
+Your final reply may only state what the tool results show actually happened; if a step failed or wasn't
+done, say so. Never claim you did something a tool didn't do. If a request is unclear or
 needs something no tool can do, say so briefly. Reply in the language the user used; for Hindi or
 Hinglish, reply in romanized Hinglish (Latin letters), never Devanagari.
 Prefer one direct tool over many small ones (e.g. youtube_play instead of open browser + search + click).
@@ -74,8 +80,16 @@ def run_tool(name, args):
         if ok is not True:
             return "Cancelled (not confirmed)."
     try:
-        log(f"tool {name} {json.dumps(args)}")
-        return str(t["fn"](**args))
+        log(f"tool {name} {json.dumps(args)[:300]}")
+        out = str(t["fn"](**args))
+        # Steps that open or switch things move the cursor: later steps should follow it.
+        if t["category"] in ("apps", "web", "screen") and name not in ("screen_read", "screen_copy", "screenshot"):
+            time.sleep(0.15)
+            fg = inject.foreground()
+            if fg:
+                tools.CTX["target"] = fg
+                tools.CTX["window"] = inject.window_info(fg)
+        return out
     except TypeError as e:
         return f"(bad arguments for {name}: {e})"
     except Exception as e:
@@ -85,12 +99,14 @@ def run_tool(name, args):
 
 def route_with_ai(text, window):
     cats = _categories(text)
+    if cats is not None:
+        cats |= {"writing"}  # creating text is always possible, whatever words were used
     schemas = tools.schemas(cats)
     ctx = f"Now: {_now()}. Front window: {window.get('title') or '?'} ({window.get('exe') or '?'})."
     messages = [{"role": "system", "content": ROUTER_SYSTEM + "\n" + ctx}, {"role": "user", "content": text}]
     results = []
     for _ in range(6):
-        msg = llm.chat(messages, tools=schemas, temperature=0.2, max_tokens=700)
+        msg = llm.chat(messages, tools=schemas, temperature=0.2, max_tokens=700, models=S.get("router_models"))
         calls = msg.get("tool_calls") or []
         if not calls:
             return (msg.get("content") or "").strip() or (" ".join(results) if results else "Done.")
@@ -117,6 +133,7 @@ def handle_command(text, window):
     notch.thinking(text)
     tools.CTX["target"] = window.get("hwnd")
     tools.CTX["window"] = window
+    tools.CTX["utterance"] = text
 
     # 1. "make this longer" with text selected: rewrite the selection, any wording.
     norm = rules.normalize(text)

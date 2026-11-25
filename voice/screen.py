@@ -200,6 +200,36 @@ def with_uia(fn, *a, **kw):
     return result.get("v")
 
 
+def focused_box():
+    """What has keyboard focus: {'editable': bool, 'selected': str, 'name': str}. editable=None if unknown."""
+    def run():
+        auto = _uia()
+        c = auto.GetFocusedControl()
+        if not c:
+            return {"editable": None, "selected": "", "name": ""}
+        kind = c.ControlTypeName
+        editable = kind in ("EditControl", "DocumentControl", "ComboBoxControl")
+        if not editable:
+            try:  # rich editors (Gmail body, Notion, Word) often expose a writable Value or Text pattern
+                vp = c.GetValuePattern()
+                editable = bool(vp) and not vp.IsReadOnly
+            except Exception:
+                pass
+        selected = ""
+        try:
+            tp = c.GetTextPattern()
+            if tp:
+                sel = tp.GetSelection()
+                selected = "".join(r.GetText(2000) for r in sel) if sel else ""
+        except Exception:
+            pass
+        return {"editable": editable, "selected": selected, "name": (c.Name or kind)[:40]}
+    try:
+        return with_uia(run) or {"editable": None, "selected": "", "name": ""}
+    except Exception:
+        return {"editable": None, "selected": "", "name": ""}
+
+
 def browser_url(hwnd):
     """The address bar text of a Chromium browser window (Brave/Chrome/Edge), or ''."""
     def run():

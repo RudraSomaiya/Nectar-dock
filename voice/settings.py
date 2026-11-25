@@ -34,6 +34,9 @@ DEFAULTS = {
     # Spoken snippets: say "insert <name>" while dictating.
     "snippets": {},
     "groq_models": ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+    # Commands use a different model first, so they don't eat the per-minute budget that dictation,
+    # writing and screen vision (all on Qwen) need. Each Groq model has its own free-tier limit.
+    "router_models": ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"],
     "vision_model": "qwen/qwen3.8-27b",
     "data_dir": os.path.join(HERE, "data"),
     "log_dir": os.path.join(HERE, "logs"),

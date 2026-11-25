@@ -44,7 +44,19 @@ CTX = {"target": None}
       {"name": S_("App name as the user said it")}, ["name"])
 def open_app(name):
     msg = apps.focus_app(name) if apps.match_windows(name) else None
-    return msg or apps.open_app(name)
+    if msg:
+        return msg
+    msg = apps.open_app(name)
+    # Wait for its window so a following step ("…and write X in it") lands in the right place.
+    for _ in range(24):
+        wins = apps.match_windows(name)
+        if wins:
+            inject.focus(wins[0]["hwnd"])
+            CTX["target"] = wins[0]["hwnd"]
+            time.sleep(0.3)
+            break
+        time.sleep(0.25)
+    return msg
 
 
 @tool("close_app", "apps", "Close an app. scope 'one' closes only its front window, 'all' every window.",
@@ -97,10 +109,10 @@ def press_keys(keys, times=1):
     return f"Pressed {keys}."
 
 
-@tool("type_text", "keys", "Type the given text exactly into the front app.", {"text": S_("Text")}, ["text"])
+@tool("type_text", "writing", "Type/paste the given text exactly into the text box that has the cursor in the "
+      "front app (e.g. text written in an earlier step).", {"text": S_("Text")}, ["text"])
 def type_text(text):
-    if CTX.get("target"):
-        inject.focus(CTX["target"])
+    # Type where the cursor is now (an earlier step may have moved focus, e.g. opened a compose box).
     inject.paste_text(text)
     return "Typed."
 
@@ -364,19 +376,39 @@ WRITE_SYSTEM = ("You write text for the user to send or use. Write exactly what 
                 "Use [placeholders] only for details you truly don't know.")
 
 
-@tool("write", "writing", "Write new text (email, message, paragraph, list...) from an instruction and type it "
-      "into the box the user is in, or copy it to the clipboard if asked.",
-      {"instruction": S_("What to write, with all details the user gave"),
-       "destination": S_("type (default) or clipboard", enum=["type", "clipboard"])}, ["instruction"])
-def write(instruction, destination="type"):
-    out = llm.text(WRITE_SYSTEM, instruction, temperature=0.6, max_tokens=1200)
-    if destination == "clipboard" or not CTX.get("target"):
-        inject.set_clipboard(out)
-        return f"Copied to clipboard: \"{out[:90]}{'…' if len(out) > 90 else ''}\""
-    inject.focus(CTX["target"])
-    time.sleep(0.1)
-    inject.paste_text(out)
-    return "Written."
+@tool("write", "writing", "Create any text the user asks for (prompt, email, message, letter, caption, list, "
+      "code, answer to paste...) from an instruction. It goes into the text box the cursor is in; if the user "
+      "says clipboard, or no text box has the cursor, it goes to the clipboard instead. The result includes the "
+      "text, so a later step can paste it somewhere else (type_text).",
+      {"instruction": S_("What to write, with every detail the user gave"),
+       "destination": S_("auto (default: text box if one is focused, else clipboard) or clipboard",
+                         enum=["auto", "clipboard"])}, ["instruction"])
+def write(instruction, destination="auto"):
+    import screen
+    # Your rule: clipboard only when you said so; otherwise the box with the cursor.
+    if destination == "clipboard" and not re.search(r"clipboard|\bcopy\b|\bcopied\b", CTX.get("utterance", ""), re.I):
+        destination = "auto"
+    out = llm.text(WRITE_SYSTEM, instruction, temperature=0.6, max_tokens=1500)
+    if not out:
+        return "(the writing model returned nothing)"
+    preview = out if len(out) <= 400 else out[:400] + "…"
+    where = None
+    if destination != "clipboard" and CTX.get("target"):
+        inject.focus(CTX["target"])
+        time.sleep(0.12)
+        box = screen.focused_box()
+        if box["editable"] is not False:  # a text box, or can't tell (custom editors): type it
+            if box["selected"].strip():
+                inject.press("right")  # don't overwrite what's selected: write after it
+                time.sleep(0.05)
+                out = "\n\n" + out
+            inject.paste_text(out)
+            where = box["name"] or "the text box"
+    if where:
+        return f"Typed into {where}. Text: {preview}"
+    inject.set_clipboard(out)
+    reason = "" if destination == "clipboard" else " (no text box had the cursor)"
+    return f"Copied to clipboard{reason}. Text: {preview}"
 
 
 REWRITE_SYSTEM = ("Rewrite the user's text as their instruction says. Keep facts, names, numbers and links unless "
