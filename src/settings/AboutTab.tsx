@@ -128,7 +128,7 @@ export function AboutTab({
     <div className="about-tab-container">
       <div className="about-header">
         <img src="/nectar.png" className="about-logo" alt="Nectar Logo" />
-        <h1 className="about-title">Nectar</h1>
+        <h1 className="about-title">Gizmo</h1>
         <p className="about-version">{t("about.version", { version: appVersion || "—" })}</p>
         <button
           className={`update-pill update-pill--${updateStatus || "idle"}`}

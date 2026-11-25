@@ -1064,7 +1064,7 @@ function OverlayApp() {
             transition={{ duration: 0.3 }}
           >
             <div className="update-splash-card">
-              <img src="/nectar.png" className="update-splash-logo" alt="Nectar" />
+              <img src="/nectar.png" className="update-splash-logo" alt="Gizmo" />
               <p className="update-splash-text">
                 {updateStatus === 'checking' && t("overlay.update.checking")}
                 {updateStatus === 'downloading' && t("overlay.update.downloading", { percent: updateProgress })}
