@@ -54,7 +54,11 @@ The tool count doesn't make prompts bigger, because only the relevant category i
 - Timers: timer, stopwatch, reminders, list, **cancel**
 - Questions: short answers in the notch
 
+Status (25 Nov): phase 1 done; phase 2 done except the items marked *later*. 38 tools.
+
 **Phase 2: browser and screen**
+*Limit:* apps that hide their controls from UI Automation (e.g. the Claude desktop app) can be read with vision but
+not clicked; vision can't point at buttons reliably yet.
 - Web: open URL, search on any site, saved sites by name, new tab/close tab/reload/back
 - YouTube: search, play first/nth result, fullscreen, skip
 - Screen actions using Windows' accessibility system: click X, tick a box, choose an option, fill in a field, focus a box

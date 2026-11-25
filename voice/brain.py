@@ -30,7 +30,15 @@ CATEGORY_WORDS = {
     "web": r"\b(search|google|youtube|video|website|site|url|browser|brave|chrome|look up|wikipedia|amazon|"
            r"github|maps|reddit|tab)",
     "writing": r"\b(write|draft|compose|email|mail|message|reply|letter|essay|paragraph|note|caption|tweet|post)",
+    "screen": r"\b(screen|click|tick|untick|check ?box|select|choose|fill|field|box|button|link|copy|error|"
+              r"what('?s| is) (this|that)|camera|photo|selfie|picture|screenshot|snip|page|image|read|"
+              r"cursor|type in|enter my|first|second|third|video)",
 }
+
+ORDINALS = {"first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+            "fifth": 5, "5th": 5, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+NTH_VIDEO = re.compile(r"(?:click|play|open|start|watch)(?: on)?(?: the)? (\w+)(?: one| video| result)"
+                       r"(?: video)?(?: on (?:my |the )?screen)?(?: and (?:make it |go |put it )?(full ?screen))?$", re.I)
 
 ROUTER_SYSTEM = """You are Nectar Voice, a voice assistant on the user's Windows laptop. The user spoke a command;
 speech recognition may have small mistakes (e.g. "brief" = Brave, "cloud" = Claude), so read for intent.
@@ -40,6 +48,8 @@ after seeing results). If the user only asks a question, answer it directly in o
 needs something no tool can do, say so briefly. Reply in the language the user used; for Hindi or
 Hinglish, reply in romanized Hinglish (Latin letters), never Devanagari.
 Prefer one direct tool over many small ones (e.g. youtube_play instead of open browser + search + click).
+Things in the window in front (buttons, links, boxes, text, errors, images) use the screen_* tools;
+"press X on my keyboard" is press_keys; a YouTube page in front + "click/play the Nth video" is youtube_click.
 When independent steps are needed, call them all in one response. After tool results come back, either
 call the next step or reply with one short sentence saying what happened (no tool output repeated verbatim
 unless it answers a question)."""
@@ -124,8 +134,12 @@ def handle_command(text, window):
             notch.error(reply)
             return reply
 
-    # 2. Instant rules.
-    hit = rules.match(text)
+    # 2. Instant rules. "Click the first video" on YouTube goes straight to the video list.
+    m = NTH_VIDEO.search(norm)
+    if m and m.group(1) in ORDINALS and "youtube" in (window.get("title") or "").lower():
+        hit = ("youtube_click", {"n": ORDINALS[m.group(1)], "fullscreen": bool(m.group(2))})
+    else:
+        hit = rules.match(text)
     if hit:
         name, args = hit
         reply = run_tool(name, args)

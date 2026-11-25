@@ -3,6 +3,7 @@
 The AI router only receives the categories a request needs, so adding tools doesn't make
 prompts bigger. `confirm=True` tools ask Allow/Deny in the notch before running.
 """
+import os
 import re
 import subprocess
 import time
@@ -391,6 +392,164 @@ def rewrite_selection(instruction, selected):
         time.sleep(0.08)
     inject.paste_text(out)
     return "Rewritten."
+
+
+# ---- screen (phase 2) ---------------------------------------------------------------------
+def _target():
+    return CTX.get("target") or inject.foreground()
+
+
+@tool("screen_read", "screen", "Look at the user's screen and answer a question about what's visible: 'what's on "
+      "my screen', 'what does this error say', 'summarize this page', 'what is this'.",
+      {"question": S_("The user's question, in their words")}, ["question"])
+def screen_read(question):
+    import screen
+    img, _ = screen.capture(_target())
+    return screen.ask_vision(question, img) or "I couldn't make out the screen."
+
+
+@tool("screen_copy", "screen", "Copy specific text that is visible on screen (or in an image on screen) to the "
+      "clipboard, e.g. 'the password in row 3', 'the text in this image', 'the error message', 'the OTP'.",
+      {"what": S_("Which text to copy, as the user described it")}, ["what"])
+def screen_copy(what):
+    import screen
+    img, _ = screen.capture(_target(), max_dim=2000)
+    text = screen.ask_vision(
+        f"Find this on the screen and return it exactly: {what}", img,
+        system="Return ONLY the exact characters of the requested text from the screenshot, nothing else: no "
+               "quotes, labels or explanation. Keep line breaks if it spans lines. If it isn't visible, reply "
+               "exactly: NOT_FOUND", max_tokens=800).strip()
+    if not text or text == "NOT_FOUND":
+        return f"I couldn't find {what} on the screen."
+    inject.set_clipboard(text)
+    preview = text if len(text) <= 40 else text[:40] + "…"
+    return f"Copied {what}: \"{preview}\""
+
+
+@tool("screen_click", "screen", "Press a button, link, tab, menu item or checkbox in the window in front, by its "
+      "name or description: 'click sign in', 'tick remember me', 'open the settings tab', 'click the first result'.",
+      {"target": S_("The control, as the user described it"),
+       "kind": S_("Optional: checkbox, link, tab", enum=["checkbox", "link", "tab"])}, ["target"])
+def screen_click(target, kind=None):
+    import screen
+    hwnd = _target()
+
+    def run():
+        els = screen.elements(hwnd)
+        el = screen.find(target, els, kind, goal=f"click {target}")
+        if not el:
+            return None, f"I couldn't find \"{target}\" in this window."
+        if screen.DANGER.search(el["name"]):
+            return el, "confirm"
+        screen.press(el)
+        return el, f"Clicked \"{el['name'][:60]}\"."
+
+    el, msg = screen.with_uia(run)
+    if msg == "confirm":
+        import notch
+        if notch.ask(f"Click \"{el['name'][:50]}\"?", "This button may buy, send or delete something.") is not True:
+            return "Not clicked."
+        screen.with_uia(lambda: screen.press(el))
+        return f"Clicked \"{el['name'][:60]}\"."
+    return msg
+
+
+@tool("screen_fill", "screen", "Type into a text box in the window in front, found by its label: 'fill in my name "
+      "as Rudra', 'type hello in the search box', 'put the cursor in the email field' (text empty = just focus).",
+      {"field": S_("The box's label or description"), "text": S_("What to type (empty to just focus it)")},
+      ["field"])
+def screen_fill(field, text=""):
+    import screen
+    hwnd = _target()
+
+    def run():
+        el = screen.find(field, screen.elements(hwnd), "field", goal=f"the {field} text box")
+        if not el:
+            return None
+        try:
+            el["ctrl"].SetFocus()
+        except Exception:
+            screen.press(el)
+        return el
+
+    el = screen.with_uia(run)
+    if not el:
+        return f"I couldn't find a \"{field}\" box here."
+    if text:
+        time.sleep(0.1)
+        inject.press("ctrl+a")
+        inject.paste_text(text)
+        return f"Typed into {el['name'][:40]}."
+    return f"Cursor is in {el['name'][:40]}."
+
+
+@tool("youtube_click", "web", "On a YouTube page that's open (home or search results), play the n-th video shown, "
+      "optionally fullscreen. Use for 'click the first video' / 'play the second one' when YouTube is in front.",
+      {"n": N_("1 = first video"), "fullscreen": {"type": "boolean"}})
+def youtube_click(n=1, fullscreen=False):
+    import screen
+    hwnd = _target()
+    n = max(1, int(n or 1))
+
+    def run():
+        vids = [e for e in screen.elements(hwnd, limit=600, budget_s=4)
+                if e["type"] in ("Hyperlink", "Text") and re.search(
+                    r"\b\d+ (?:hours?|minutes?|seconds?)\b|\b\d+:\d{2}\b", e["name"]) and len(e["name"]) > 15]
+        seen, uniq = set(), []
+        for v in vids:
+            key = v["name"][:50]
+            if key not in seen:
+                seen.add(key)
+                uniq.append(v)
+        if len(uniq) >= n:
+            screen.press(uniq[n - 1])
+            return uniq[n - 1]["name"]
+        return None
+
+    title = screen.with_uia(run)
+    if not title:
+        # Fall back to the search words in the address bar.
+        url = screen.browser_url(hwnd)
+        m = re.search(r"search_query=([^&]+)", url)
+        if not m:
+            return "I couldn't find videos on this page."
+        return youtube_play(urllib.parse.unquote_plus(m.group(1)), n, fullscreen)
+    if fullscreen:
+        time.sleep(4)
+        inject.press("f")
+    short = re.split(r" by | \d+ (?:hours?|minutes?)", title)[0][:70]
+    return f"Playing \"{short}\"."
+
+
+@tool("screenshot", "screen", "Take a screenshot of the screen and save it (Pictures\\Screenshots); "
+      "snip=true opens the snipping tool instead.", {"snip": {"type": "boolean"}})
+def screenshot(snip=False):
+    if snip:
+        inject.press("windows+shift+s")
+        return "Snip away."
+    import screen
+    _, full = screen.capture(_target())
+    path = os.path.join(screen.pictures_dir("Screenshots"), time.strftime("Screenshot %Y-%m-%d %H%M%S.png"))
+    full.save(path)
+    return f"Saved screenshot to Pictures\\Screenshots."
+
+
+@tool("camera_photo", "screen", "Take a photo with the webcam (opens the Camera app and presses the shutter). "
+      "Not for screenshots.")
+def camera_photo():
+    import apps as _apps
+    subprocess.Popen(["explorer.exe", "microsoft.windows.camera:"])
+    for _ in range(40):
+        time.sleep(0.25)
+        wins = [w for w in _apps.windows() if w["title"].lower() == "camera"]
+        if wins:
+            break
+    else:
+        return "The Camera app didn't open."
+    inject.focus(wins[0]["hwnd"])
+    time.sleep(2.2)  # let the camera start and focus
+    inject.press("space")
+    return "Photo taken: it's in Pictures\\Camera Roll."
 
 
 def schemas(categories=None):
