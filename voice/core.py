@@ -18,6 +18,7 @@ sys.path.insert(0, HERE)
 import keyboard  # noqa: E402
 import numpy as np  # noqa: E402
 
+import answers  # noqa: E402
 import apps  # noqa: E402
 import audio  # noqa: E402
 import brain  # noqa: E402
@@ -122,21 +123,51 @@ class Voice:
         threading.Thread(target=self.process, args=(mode, pcm, dict(self.window)), daemon=True).start()
 
     # -- pipeline -----------------------------------------------------------------------
+    def _transcribe(self, mode, pcm):
+        """Whisper text for the recording, or None if recognition failed (the notch already says so)."""
+        notch.transcribing(mode, "" if stt.ready() else "Loading the speech model (first use after a break)…")
+        t0 = time.perf_counter()
+        try:
+            text = stt.transcribe(pcm, prompt=", ".join(S.get("vocabulary", [])))
+        except Exception as e:
+            log(f"stt failed: {e}")
+            notch.error("Speech recognition failed.", mode)
+            return None
+        log(f"{mode}: heard {text!r} ({len(pcm) / 16000:.1f}s audio, stt {(time.perf_counter() - t0) * 1000:.0f} ms)")
+        return text
+
+    def _answer_question(self, text, asks):
+        """A question is waiting in the notch (Gizmo's or Claude Code's): is this the answer? True if used."""
+        res = answers.classify(text, asks)
+        if not res:
+            return False
+        allow, choices, ask_id = res
+        if not notch.answer(allow, choices, ask_id):
+            return False
+        log(f"answered question {ask_id} by voice: {text!r} -> {'allow' if allow else 'deny'} {choices}")
+        notch.done(("Choice " + ", ".join(str(c + 1) for c in choices)) if choices else ("Allowed." if allow else "Denied."))
+        return True
+
     def process(self, mode, pcm, window):
         if not audio.has_speech(pcm):
             notch.clear()
             return
+        heard = None
+        asks = notch.pending() if mode == "command" else []
+        if asks:  # something is waiting for a yes/no: listen for the answer before anything else
+            heard = self._transcribe(mode, pcm)
+            if heard is None:
+                return
+            if self._answer_question(heard, asks):
+                return
+            if notch.asking.is_set():  # Gizmo's own question holds the command lock until it's answered
+                notch.error("A question is waiting: say “yes” or “no”, or click Allow / Deny.", mode)
+                return
         with self.busy:
             t0 = time.perf_counter()
-            notch.transcribing(mode, "" if stt.ready() else "Loading the speech model (first use after a break)…")
-            try:
-                text = stt.transcribe(pcm, prompt=", ".join(S.get("vocabulary", [])))
-            except Exception as e:
-                log(f"stt failed: {e}")
-                notch.error("Speech recognition failed.", mode)
+            text = heard if heard is not None else self._transcribe(mode, pcm)
+            if text is None:
                 return
-            stt_ms = (time.perf_counter() - t0) * 1000
-            log(f"{mode}: heard {text!r} ({len(pcm) / 16000:.1f}s audio, stt {stt_ms:.0f} ms)")
             if not text.strip() or _hallucination(text):
                 notch.clear()
                 return

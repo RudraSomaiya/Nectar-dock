@@ -107,6 +107,36 @@ def stopwatch(action):
     return _send({"kind": "stopwatch", "action": action})
 
 
+def pending():
+    """Questions waiting for an answer in the notch (Gizmo's and Claude Code's), oldest first."""
+    base, headers = _cfg()
+    if not base:
+        return []
+    try:
+        r = _client.post(base + "/pending", json={}, headers=headers, timeout=1)
+        return r.json() if r.status_code == 200 else []
+    except (httpx.HTTPError, ValueError):
+        return []
+
+
+def answer(allow, choices=None, ask_id=None):
+    """Answer the newest waiting question (or `ask_id`) from outside the notch. True if one was waiting."""
+    base, headers = _cfg()
+    if not base:
+        return False
+    body = {"allow": bool(allow), "choices": choices or []}
+    if ask_id:
+        body["id"] = ask_id
+    try:
+        return _client.post(base + "/answer", json=body, headers=headers, timeout=2).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+# True from the moment Gizmo asks until it's answered: its command holds the busy lock meanwhile.
+asking = threading.Event()
+
+
 def ask(question, detail="", choices=None, timeout=120):
     """Allow/Deny (or choices) in the notch. True/False, a choice index, or None if unanswered."""
     base, headers = _cfg()
@@ -116,6 +146,7 @@ def ask(question, detail="", choices=None, timeout=120):
     body = {"name": NAME, "tool": question[:60], "detail": detail[:600]}
     if choices:
         body["questions"] = [{"question": question, "options": choices[:4]}]
+    asking.set()
     try:
         r = httpx.post(base + "/ask", json=body, headers=headers, timeout=timeout + 5)
         if r.status_code != 200:
@@ -128,6 +159,7 @@ def ask(question, detail="", choices=None, timeout=120):
         log(f"notch ask failed: {e}")
         return None
     finally:
+        asking.clear()
         # The question used the agent panel; put the notch back to normal afterwards.
         try:
             _client.post(base + "/activity", json={"state": "clear", "name": NAME}, headers=headers)

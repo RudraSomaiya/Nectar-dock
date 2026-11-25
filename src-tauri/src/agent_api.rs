@@ -18,7 +18,9 @@ const SETTING: &str = "nectar-agent-api";
 static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 static NEXT_ASK: AtomicU64 = AtomicU64::new(1);
 type Decision = (bool, Vec<usize>);
-static PENDING: Mutex<Option<HashMap<u64, mpsc::Sender<Decision>>>> = Mutex::new(None);
+/// A waiting question: where its answer goes, plus what was asked (for `POST /pending`).
+type Pending = (mpsc::Sender<Decision>, serde_json::Value);
+static PENDING: Mutex<Option<HashMap<u64, Pending>>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 struct Incoming {
@@ -114,10 +116,18 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 pub fn answer(id: u64, allow: bool, choices: Vec<usize>) {
-    let sender = PENDING.lock().ok().and_then(|mut map| map.as_mut().and_then(|m| m.remove(&id)));
-    if let Some(sender) = sender {
+    let entry = PENDING.lock().ok().and_then(|mut map| map.as_mut().and_then(|m| m.remove(&id)));
+    if let Some((sender, _)) = entry {
         let _ = sender.send((allow, choices));
     }
+}
+
+#[derive(Deserialize)]
+struct Answer {
+    allow: bool,
+    #[serde(default)]
+    choices: Vec<usize>,
+    id: Option<u64>,
 }
 
 fn wait_for_answer(stream: &mut TcpStream, id: u64, rx: &mpsc::Receiver<Decision>) -> Option<Decision> {
@@ -130,8 +140,11 @@ fn wait_for_answer(stream: &mut TcpStream, id: u64, rx: &mpsc::Receiver<Decision
         }
         waited += 1;
         let mut probe = [0u8; 1];
-        if matches!(stream.peek(&mut probe), Ok(0)) {
-            break;
+        // The asker went away: a clean close (Ok(0)) or a reset/abort (any error except "nothing to read yet").
+        match stream.peek(&mut probe) {
+            Ok(0) => break,
+            Err(e) if e.kind() != std::io::ErrorKind::WouldBlock => break,
+            _ => {}
         }
     }
     if let Ok(mut map) = PENDING.lock() {
@@ -165,8 +178,11 @@ fn handle(mut stream: TcpStream, app: &AppHandle, token: &str) {
     let request = lines.next().unwrap_or("");
     // Nectar Voice: listening / live transcript / result, plus timer and stopwatch control.
     let voice = matches!(request, "POST /voice HTTP/1.1" | "POST /voice HTTP/1.0");
+    // Answering a waiting question from outside the notch (by voice): what's waiting, and the reply.
+    let pending_q = matches!(request, "POST /pending HTTP/1.1" | "POST /pending HTTP/1.0");
+    let answer_q = matches!(request, "POST /answer HTTP/1.1" | "POST /answer HTTP/1.0");
     let ask = match request {
-        _ if voice => false,
+        _ if voice || pending_q || answer_q => false,
         "POST /activity HTTP/1.1" | "POST /activity HTTP/1.0" => false,
         "POST /ask HTTP/1.1" | "POST /ask HTTP/1.0" => true,
         _ => return reply(&mut stream, "404 Not Found"),
@@ -207,16 +223,63 @@ fn handle(mut stream: TcpStream, app: &AppHandle, token: &str) {
         return reply(&mut stream, "204 No Content");
     }
 
+    if pending_q {
+        let list: Vec<serde_json::Value> = PENDING
+            .lock()
+            .ok()
+            .and_then(|map| {
+                map.as_ref().map(|m| {
+                    let mut all: Vec<(u64, serde_json::Value)> = m.iter().map(|(id, (_, info))| (*id, info.clone())).collect();
+                    all.sort_by_key(|(id, _)| *id);
+                    all.into_iter().map(|(_, info)| info).collect()
+                })
+            })
+            .unwrap_or_default();
+        return reply_json(&mut stream, &serde_json::Value::Array(list).to_string());
+    }
+
+    if answer_q {
+        let Ok(a) = serde_json::from_slice::<Answer>(&body) else {
+            return reply(&mut stream, "400 Bad Request");
+        };
+        // No id = the newest waiting question.
+        let id = a.id.or_else(|| PENDING.lock().ok().and_then(|m| m.as_ref().and_then(|m| m.keys().max().copied())));
+        let waiting = id.is_some_and(|id| PENDING.lock().ok().is_some_and(|m| m.as_ref().is_some_and(|m| m.contains_key(&id))));
+        let (true, Some(id)) = (waiting, id) else {
+            return reply(&mut stream, "404 Not Found");
+        };
+        answer(id, a.allow, a.choices);
+        // Same as answering in the notch: the panel closes.
+        let _ = app.emit("agent-activity", Activity { state: "working", name: None, project: None, window: None, detail: None, ask: None, cancelled: Some(id) });
+        return reply_json(&mut stream, &serde_json::json!({ "id": id }).to_string());
+    }
+
     if ask {
         let Ok(incoming) = serde_json::from_slice::<IncomingAsk>(&body) else {
             return reply(&mut stream, "400 Bad Request");
         };
         let id = NEXT_ASK.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
-        if let Ok(mut map) = PENDING.lock() {
-            map.get_or_insert_with(HashMap::new).insert(id, tx);
-        }
         let (name, project, window) = (clean(incoming.name, 40), clean(incoming.project, 40), incoming.window);
+        let asked = Ask {
+            id,
+            tool: clean(incoming.tool, 40),
+            detail: clean(incoming.detail, DETAIL_MAX),
+            questions: incoming.questions.map(|list| {
+                list.into_iter()
+                    .take(4)
+                    .filter_map(|q| {
+                        let question = clean(Some(q.question), DETAIL_MAX)?;
+                        Some(AskQuestion { question, options: q.options.into_iter().filter_map(|o| clean(Some(o), 80)).take(4).collect() })
+                    })
+                    .collect()
+            }),
+        };
+        let mut summary = serde_json::to_value(&asked).unwrap_or_default();
+        summary["name"] = serde_json::json!(name);
+        if let Ok(mut map) = PENDING.lock() {
+            map.get_or_insert_with(HashMap::new).insert(id, (tx, summary));
+        }
         let _ = app.emit(
             "agent-activity",
             Activity {
@@ -225,20 +288,7 @@ fn handle(mut stream: TcpStream, app: &AppHandle, token: &str) {
                 project: project.clone(),
                 window,
                 detail: None,
-                ask: Some(Ask {
-                    id,
-                    tool: clean(incoming.tool, 40),
-                    detail: clean(incoming.detail, DETAIL_MAX),
-                    questions: incoming.questions.map(|list| {
-                        list.into_iter()
-                            .take(4)
-                            .filter_map(|q| {
-                                let question = clean(Some(q.question), DETAIL_MAX)?;
-                                Some(AskQuestion { question, options: q.options.into_iter().filter_map(|o| clean(Some(o), 80)).take(4).collect() })
-                            })
-                            .collect()
-                    }),
-                }),
+                ask: Some(asked),
                 cancelled: None,
             },
         );
