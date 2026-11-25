@@ -131,18 +131,45 @@ class Handler(BaseHTTPRequestHandler):
             text = transcribe(pcm, q.get("language", [S["language"]])[0], q.get("prompt", [""])[0])
         except Exception as e:
             log(f"transcribe failed: {e}")
-            return self._json(500, {"error": str(e)})
+            self._json(500, {"error": str(e)})
+            if state["device"] == "cuda":
+                # The GPU probably went away (Eco mode). Quit; the client starts a new worker, which
+                # falls back to the CPU, and retries this audio.
+                log("CUDA error: exiting so a fresh worker can start (CPU if the GPU is gone)")
+                threading.Thread(target=lambda: (time.sleep(0.2), os._exit(1)), daemon=True).start()
+            return
         state["last_use"] = time.time()
         ms = round((time.perf_counter() - t) * 1000)
         log(f"{len(pcm) / 16000:.1f}s audio -> {len(text)} chars in {ms} ms")
         self._json(200, {"text": text, "ms": ms, "device": state["device"]})
 
 
+def gpu_present():
+    """Is the NVIDIA GPU present and working right now? (In G-Helper Eco mode it leaves the device list.)"""
+    try:
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        wmi = win32com.client.GetObject("winmgmts:")
+        rows = wmi.ExecQuery("select ConfigManagerErrorCode from Win32_VideoController where Name like '%NVIDIA%'")
+        return any(r.ConfigManagerErrorCode == 0 for r in rows)
+    except Exception:
+        return False
+
+
 def idle_watch():
     trimmed = False
+    last_gpu_check = 0
     while True:
         time.sleep(5)
         idle = time.time() - state["last_use"]
+        # Loaded on the CPU because the GPU was off? Once it's back, restart while idle: the next
+        # request starts a fresh worker, which loads on the GPU.
+        if state["ready"] and state["device"] == "cpu" and time.time() - last_gpu_check > 60:
+            last_gpu_check = time.time()
+            if gpu_present() and idle > 3 and not model_lock.locked():
+                log("GPU is available again; exiting so the next request loads on the GPU")
+                os._exit(0)
         from settings import nectar_setting
         try:  # Settings > Voice > Unload when idle (0 = never)
             limit = int(nectar_setting("nectar-voice-idle", S["stt_idle_exit_s"]))

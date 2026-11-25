@@ -13,7 +13,7 @@ import httpx
 
 from common import log
 
-NAME = "Voice"
+NAME = "Gizmo"
 CFG = os.path.join(os.environ.get("APPDATA", ""), "com.kua8.nectar", "agent.json")
 _q = queue.Queue()
 _client = httpx.Client(timeout=2)
@@ -54,10 +54,12 @@ def _worker():
 threading.Thread(target=_worker, daemon=True).start()
 
 
-def state(phase, mode="command", text="", label=None, hold_ms=None):
+def state(phase, mode="command", text="", label=None, hold_ms=None, icon=None):
     body = {"kind": "state", "state": phase, "mode": mode, "text": text[:500]}
     if label:
         body["label"] = label
+    if icon and len(icon) < 6500:  # Nectar takes up to 8 KB per message
+        body["icon"] = icon
     if hold_ms:
         body["hold_ms"] = hold_ms
     _q.put(body)

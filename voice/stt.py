@@ -85,8 +85,11 @@ def transcribe(pcm: np.ndarray, prompt="") -> str:
             if attempt:
                 raise RuntimeError(f"speech worker failed: {e}")
             log(f"stt retry after {e}")
+            time.sleep(0.6)  # let a crashed worker exit first
             ensure_started()
-            time.sleep(0.5)
+            deadline = time.time() + 30
+            while not _base() and time.time() < deadline:
+                time.sleep(0.05)
             base = _base() or base
 
 

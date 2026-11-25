@@ -179,6 +179,8 @@
   "notch.enabled.desc": "Turn the notch off and keep the dock",
   "widgets.ping": "Ping",
   "widgets.ping.tip": "Ping time",
+  "widgets.claude": "Claude usage",
+  "widgets.claude.tip": "Claude usage limits",
   "dock.float": "Floating dock",
   "dock.float.desc": "Lift the dock off the bottom edge",
   "dock.float.off": "Attached",

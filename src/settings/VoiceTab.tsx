@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Mic, Sparkles, Timer, Bell, Keyboard } from "lucide-react";
+import { Mic, Sparkles, Timer, Bell, Keyboard, Gauge } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { Dropdown } from "./Dropdown";
 import { SettingSection } from "./SettingSection";
@@ -26,6 +26,7 @@ export function VoiceTab() {
   const [mode, setMode] = useStored("nectar-voice-dictation", "polished", MODES);
   const [idle, setIdle] = useStored("nectar-voice-idle", "600", IDLE);
   const [notify, setNotify] = useStored("nectar-voice-notifications", "true", ["true", "false"]);
+  const [usage, setUsage] = useStored("nectar-voice-claude-usage", "false", ["true", "false"]);
 
   return (
     <>
@@ -83,11 +84,25 @@ export function VoiceTab() {
         icon={Bell}
         label="Show notifications"
         desc="Windows notifications (WhatsApp, Discord, Claude…) appear in the notch for a few seconds."
-        divider={false}
       >
         <Dropdown
           value={notify}
           onChange={setNotify}
+          options={[
+            { value: "true", label: "On" },
+            { value: "false", label: "Off" },
+          ]}
+        />
+      </SettingRow>
+      <SettingRow
+        icon={Gauge}
+        label="Claude usage widget"
+        desc="Fills the “Claude usage” status widget (add it under Notch › Widgets) with your 5-hour and weekly limits. It reads the sign-in Claude Code saved on this PC and asks only api.anthropic.com, every 5 minutes."
+        divider={false}
+      >
+        <Dropdown
+          value={usage}
+          onChange={setUsage}
           options={[
             { value: "true", label: "On" },
             { value: "false", label: "Off" },

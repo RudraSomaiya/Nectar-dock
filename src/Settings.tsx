@@ -31,7 +31,7 @@ const TABS: { id: SettingsTab; labelKey: string; icon: typeof Settings }[] = [
   { id: "general", labelKey: "tabs.general", icon: Settings },
   { id: "appearance", labelKey: "tabs.appearance", icon: Palette },
   { id: "notch", labelKey: "tabs.notch", icon: PanelTop },
-  { id: "voice", labelKey: "Voice", icon: Mic },
+  { id: "voice", labelKey: "Gizmo", icon: Mic },
   { id: "dock", labelKey: "tabs.dock", icon: Monitor },
   { id: "overlays", labelKey: "tabs.overlays", icon: Layers },
   { id: "about", labelKey: "tabs.about", icon: Info },

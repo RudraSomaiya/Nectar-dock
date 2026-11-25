@@ -7,13 +7,15 @@ export interface VoiceState {
   mode: "command" | "dictate";
   text: string;
   label?: string;
+  icon?: string;
 }
 
 export type VoiceEvent =
+  | { kind: "claude-usage"; state?: undefined; action?: undefined; [k: string]: unknown }
   | { kind: "level"; values: number[]; state?: undefined; action?: undefined }
   | { kind: "timer"; action: "start" | "reset" | "pause" | "resume"; seconds?: number; state?: undefined }
   | { kind: "stopwatch"; action: "start" | "stop" | "reset"; state?: undefined }
-  | { kind?: "state"; state?: VoicePhase | "idle"; mode?: "command" | "dictate"; text?: string; label?: string; hold_ms?: number; action?: undefined };
+  | { kind?: "state"; state?: VoicePhase | "idle"; mode?: "command" | "dictate"; text?: string; label?: string; icon?: string; hold_ms?: number; action?: undefined };
 
 const LABELS: Record<VoicePhase, string> = {
   listening: "Listening",
@@ -43,6 +45,12 @@ export function voiceSize(v: VoiceState) {
   // A steady size while talking: the notch doesn't jump with every update.
   if (isLive(v)) return { width: LIVE_WIDTH, height: 62 + (v.text.length > 40 ? 18 : 0) };
   const text = v.text || "";
+  if (v.state === "notice") {
+    const width = Math.round(Math.min(460, Math.max(320, 110 + text.length * 7.6)));
+    const perLine = Math.max(30, Math.floor((width - 96) / 7.6));
+    const lines = Math.max(1, Math.min(3, Math.ceil(text.length / perLine)));
+    return { width, height: 64 + (lines - 1) * 18 };
+  }
   const width = Math.round(Math.min(460, Math.max(300, 96 + text.length * 7.4)));
   const perLine = Math.max(30, Math.floor((width - 86) / CHAR_W));
   const lines = Math.max(1, Math.min(5, Math.ceil(text.length / perLine)));
@@ -50,7 +58,7 @@ export function voiceSize(v: VoiceState) {
 }
 
 /** Bars follow the real mic level (newest on the right), so a dead or wrong mic is obvious. */
-function Indicator({ phase, levels }: { phase: VoicePhase; levels: number[] }) {
+function Indicator({ phase, levels, icon }: { phase: VoicePhase; levels: number[]; icon?: string }) {
   if (phase === "listening") {
     const bars = levels.length ? levels.slice(-5) : [0.04, 0.04, 0.04, 0.04, 0.04];
     // Mirror around the middle bar so it reads like a waveform: [3, 1, 0 (newest), 2, 4].
@@ -62,6 +70,9 @@ function Indicator({ phase, levels }: { phase: VoicePhase; levels: number[] }) {
         ))}
       </div>
     );
+  }
+  if (phase === "notice" && icon) {
+    return <img className="voice-app-icon" src={icon} alt="" draggable={false} />;
   }
   if (phase === "transcribing" || phase === "thinking") {
     return <div className="voice-spinner" aria-hidden />;
@@ -83,10 +94,10 @@ export function VoicePanel({ voice, levels = [] }: { voice: VoiceState; levels?:
       exit={{ opacity: 0, transition: { duration: 0.1 } }}
       transition={{ duration: 0.16 }}
     >
-      <Indicator phase={voice.state} levels={levels} />
+      <Indicator phase={voice.state} levels={levels} icon={voice.icon} />
       <div className="voice-body">
         <div className="voice-label">{mode ? `${label} · ${mode}` : label}</div>
-        <div className={`voice-text ${text ? "" : "placeholder"} ${isLive(voice) ? "live" : ""}`}>{text || placeholder}</div>
+        <div className={`voice-text ${text ? "" : "placeholder"} ${isLive(voice) ? "live" : ""} ${voice.state === "notice" ? "notice" : ""}`}>{text || placeholder}</div>
       </div>
     </motion.div>
   );

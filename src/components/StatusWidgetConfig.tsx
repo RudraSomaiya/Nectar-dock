@@ -30,6 +30,7 @@ import {
   ArrowLeftRight,
   ChevronUp,
   ChevronDown,
+  Gauge,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import { useT } from "../i18n";
@@ -53,6 +54,7 @@ const WIDGET_DEFS: WidgetDef[] = [
   { id: "disk", icon: HardDrive, color: "#38bdf8" },
   { id: "net", icon: ArrowUpDown, color: "#2dd4bf" },
   { id: "ping", icon: Activity, color: "#facc15" },
+  { id: "claude", icon: Gauge, color: "#d97757" },
 ];
 
 const DEFAULT_CONFIG: WidgetConfig = {

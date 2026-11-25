@@ -2978,3 +2978,15 @@ img {
 }
 
 .voice-badge.notice { background: #5ac8fa; font-size: 12px; }
+
+.voice-app-icon {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 6px;
+    object-fit: contain;
+}
+
+.voice-text.notice {
+    -webkit-line-clamp: 3;
+}

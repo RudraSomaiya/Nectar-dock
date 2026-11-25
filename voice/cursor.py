@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 
-LABEL = "Nectar AI"   # placeholder name
+LABEL = "Gizmo"
 ACCENT = "#5ac8fa"
 KEY = "#010203"       # transparent colour
 W, H = 190, 70

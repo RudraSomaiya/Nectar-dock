@@ -239,6 +239,8 @@ def main():
     v = Voice()
     import notifications
     notifications.start(lambda: v.mode is not None or v.busy.locked())
+    import claude_usage
+    claude_usage.start()
     keyboard.hook(v.on_key)
     log(f"Nectar Voice running: hold {S['command_key']} for commands, {S['dictate_key']} to dictate")
     try:

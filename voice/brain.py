@@ -42,7 +42,7 @@ ORDINALS = {"first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "
 NTH_VIDEO = re.compile(r"(?:click|play|open|start|watch)(?: on)?(?: the)? (\w+)(?: one| video| result)"
                        r"(?: video)?(?: on (?:my |the )?screen)?(?: and (?:make it |go |put it )?(full ?screen))?$", re.I)
 
-ROUTER_SYSTEM = """You are Nectar Voice, a voice assistant on the user's Windows laptop. The user spoke a command;
+ROUTER_SYSTEM = """You are Gizmo, a voice assistant on the user's Windows laptop. The user spoke a command;
 speech recognition may have small mistakes (e.g. "brief" = Brave, "cloud" = Claude), so read for intent.
 Use the tools to act. For several steps, call the tools in order (you may call more than one, or call again
 after seeing results). If the user only asks a question, answer it directly in one or two short sentences

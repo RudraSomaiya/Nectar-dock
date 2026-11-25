@@ -66,17 +66,21 @@ def watch(is_busy):
                         continue
                     texts = [t for t in _texts(payload) if t]
                     if texts:
-                        pending.append((_app_name(aumid), texts))
+                        pending.append((_app_name(aumid), texts, aumid))
             finally:
                 con.close()
         except sqlite3.Error as e:
             log(f"notifications: {e}")
         if pending and not is_busy() and nectar_setting("nectar-voice-notifications", "true") != "false":
-            app, texts = pending.pop(0)
+            app, texts, aumid = pending.pop(0)
             title, body = texts[0], " ".join(texts[1:])
             text = f"{title}: {body}" if body else title
+            if len(text) > 180:  # the notch shows three lines at most
+                text = text[:177].rsplit(" ", 1)[0] + "…"
+            import appicon
             log(f"notification from {app} ({len(text)} chars)")
-            notch.state("notice", "command", text, label=app, hold_ms=min(9000, 4000 + len(text) * 40))
+            notch.state("notice", "command", text, label=app, hold_ms=min(9000, 4000 + len(text) * 40),
+                        icon=appicon.icon_data_url(aumid))
             time.sleep(1.0)
             continue
         time.sleep(1.5)

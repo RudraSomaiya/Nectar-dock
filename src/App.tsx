@@ -65,6 +65,7 @@ import {
   Bell,
   RotateCw,
   BatteryCharging,
+  Gauge,
 } from "lucide-react";
 import { setVisibleInterval } from "./hooks/visibleInterval";
 
@@ -555,6 +556,8 @@ function App() {
   const agentNoticeKey = useRef('');
   const voiceClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [voiceLevels, setVoiceLevels] = useState<number[]>([]);
+  // Claude plan usage, pushed by voice/claude_usage.py every few minutes.
+  const [claudeUsage, setClaudeUsage] = useState<{ five_hour?: number; seven_day?: number; five_hour_resets?: string; seven_day_resets?: string; status?: string } | null>(null);
   const [agentPicks, setAgentPicks] = useState<{ id: number; choices: number[] }>({ id: 0, choices: [] });
   const lastAgentKey = useRef("");
   const windowLabelRef = useRef("");
@@ -1300,6 +1303,10 @@ function App() {
     const unlisten = listen<VoiceEvent>("voice-event", (event) => {
       const p = event.payload;
       const a = voiceActionsRef.current;
+      if (p.kind === "claude-usage") {
+        setClaudeUsage(p as never);
+        return;
+      }
       if (p.kind === "level") {
         setVoiceLevels(p.values ?? []);
         return;
@@ -1320,7 +1327,7 @@ function App() {
       clearTimeout(voiceClearRef.current);
       if (!p.state || p.state === "idle") { setVoice(null); setVoiceLevels([]); return; }
       if (p.state !== "listening") setVoiceLevels([]);
-      setVoice({ state: p.state, mode: p.mode ?? "command", text: p.text ?? "", label: p.label });
+      setVoice({ state: p.state, mode: p.mode ?? "command", text: p.text ?? "", label: p.label, icon: p.icon });
       if (p.state === "result" || p.state === "error" || p.state === "notice") {
         voiceClearRef.current = setTimeout(() => setVoice(null), Math.max(1500, Math.min(20000, p.hold_ms ?? 5000)));
       } else {
@@ -1655,7 +1662,7 @@ function App() {
       if (next && next.state === "done") clear = setTimeout(() => setAgentActivity(null), 8000);
       // Without waiting for a hover: a question opens the panel with its buttons; "done" and "needs
       // you" show as a short notice. (Nectar Voice's own questions are already on screen.)
-      if (next && windowLabelRef.current.startsWith('main') && next.name !== 'Voice') {
+      if (next && windowLabelRef.current.startsWith('main') && next.name !== 'Gizmo') {
         if (next.state === 'needs_input' && next.ask) {
           setVoice(null);
           setNectarMode('agent');
@@ -1982,6 +1989,24 @@ function App() {
             <span className="label">{Math.round(ramUsage)}%</span>
           </div>
         );
+      case "claude": {
+        const u = claudeUsage;
+        const when = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
+        const tipText = !u
+          ? "Claude usage: switch it on in Settings › Gizmo"
+          : u.status === "expired"
+            ? "Claude usage: open Claude Code once to refresh the sign-in"
+            : u.status
+              ? `Claude usage: ${u.status}`
+              : `Claude: ${Math.round(u.five_hour ?? 0)}% of the 5-hour limit${u.five_hour_resets ? ` (resets ${when(u.five_hour_resets)})` : ""} · ${Math.round(u.seven_day ?? 0)}% of the week`;
+        const pct = u && !u.status && u.five_hour !== undefined ? Math.round(u.five_hour) : null;
+        return (
+          <div className="passive-feature" key="claude" {...tip(tipText)}>
+            <Gauge size={12} strokeWidth={2} style={pct !== null && pct >= 80 ? { color: "#ff9f0a" } : undefined} />
+            <span className="label">{pct === null ? "—" : `${pct}%`}</span>
+          </div>
+        );
+      }
       case "ping":
         return (
           <div className="passive-feature" key="ping" {...tip(t("widgets.ping.tip"))}>
